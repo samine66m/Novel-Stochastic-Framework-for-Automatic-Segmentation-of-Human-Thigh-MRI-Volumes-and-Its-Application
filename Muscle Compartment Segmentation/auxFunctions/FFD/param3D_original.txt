@@ -1,0 +1,24 @@
+grid			= 15	%control point spacing in mm
+imagelevels 	= 3		%number of image pyramid levels
+gridlevels		= 2		%number of control grid levels
+mindim			= 0	%minimum size for any dimension within an image pyramid
+iterations 		= 5		%optimization iterations per level
+max_dis 		= 5		%maximum displacement
+steps			= 5		%number of steps from min to max displacement
+lab_factor		= 0.67	%label space rescale factor applied after each iteration
+data			= 0		%data term: 0=SAD, 1=SADG (2D only), 2=SSD, 3=NCC, 4=NMI, 5=CR 6=GRAD (2D only) 7=CCGIP (2D only) 8=HD 9=JRD 10=MI 11=JE 12=TEST
+dist			= 2		%distance term: 0=Pott's, 1=Trunc. Absolute Difference, 2=Trunc. Quadratic Difference, 3=Approx.Curvature Penalty, 4=Distance Preserving
+truncation		= 0		%truncation value for distance term
+lambda			= 10.0	%weighting between data and smoothness term
+gamma			= 0		%additional weighting: (e.g. between photometric and gemometric used in SADG and CCGIP data term)
+optimizer		= 0		%optimization method: 0=FastPD (currently only one optimizer)
+locallabels		= 0		%local label set computation: 0=OFF 1=ON
+interpolation	= 0		%deformation interpolation method: 0=Cubic B-Splines, 1=Linear, 2=Nearest (Block-matching), 3=Catmull-Rom
+invprojection	= 1		%inverse projection method: 0=Cubic B-Splines, 1=Linear, 2=Nearest, 3=Catmull-Rom
+linkmax			= 1		%indicates whether the maximum displacement is linked to the control point spacing
+increg			= 1		%incremental regularization: 0=OFF 1=ON
+update			= 0		%indicates the field update mode: 0=ADDITIONAL 1=COMPOSITIONAL 2=CONSECUTIVE
+sampling		= 0		%indicates the displacement space sampling mode: 0=SPARSE 1=DENSE
+bins			= 32	%number of bins used for histogram based data terms (e.g. NMI, CR, HD)
+margin			= 0		%image border margins (in millimeters) exluded from data cost computation
+sigma			= 1		%sigma for Gaussian image pyramid
