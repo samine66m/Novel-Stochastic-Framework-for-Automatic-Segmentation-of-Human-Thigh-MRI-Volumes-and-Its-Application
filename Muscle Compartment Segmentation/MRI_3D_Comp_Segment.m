@@ -1,0 +1,225 @@
+%==========================================================================
+%Muscle Compartment segmentation
+%==========================================================================
+%Authors: Samineh Mesbah - Ahmed Shalaby
+%==========================================================================
+%ALL RIGHTS RESERVED
+%==========================================================================
+%Reference Title: "Novel Stochastic Framework for Automatic Segmentation of Human
+%Thigh MRI Volumes and Its Applications in Spinal Cord Injured Individuals"
+%==========================================================================
+%This code is designed to segment the Muscle Compartments: Extensor
+%(Quad),Flexor (Hamstrig) and Medial (Adductor) for the Test subject
+%MRI 3-D Scans of Human Thighs
+%==========================================================================
+%Input: TestScan_Vol_WS: Water-Suppressed 3-D Scan of one Thigh (Axial)
+%       TestScan_Vol_FS: Fat_Suppressed 3-D Scan of one Thigh  (Axial)
+%       Test_ID: The Subjects ID
+%       Atlas_Vol: Fat_Suppressed 3-D Scans That are selected for Atlas
+%       (Training Data)
+%       Output: Segmented Compartments: Extensor, Flexor, Adductor
+%==========================================================================
+function [EXT, FLX, MDL]=MRI_3D_Comp_Segment(TestScan_Vol_WS,TestScan_Vol_FS,Test_ID, Atlas_Vol, Atlas_ROI,Atlas_ID)
+
+original_VOL_test = round(500.*TestScan_Vol_FS./max(TestScan_Vol_FS(:)));
+original_ROI_test = Get_Mask(TestScan_Vol_FS,TestScan_Vol_WS); % Getting the total Mask for Test Subject
+ID = Test_ID;
+
+original_vol_atlas = Atlas_Vol;
+original_roi_atlas = Atlas_ROI;
+subjectIDs = Atlas_ID;
+
+
+
+
+%%finding the reference volume based on the maximum correlation between
+%%new subject and the original vol atlas
+for i=1:size(original_vol_atlas,2)
+    for j=1:80
+        Corr_coef(i,j)=corr2(original_VOL_test(:,:,j),original_vol_atlas{i}(:,:,j));
+    end
+end
+Ave_Corr_coef = mean(Corr_coef')';
+[val,ind]=max(Ave_Corr_coef);
+
+original_VOL_ref = original_VOL_test;
+original_ROI_ref = original_ROI_test;
+
+coef_thresh = 0.5;
+[ind2,b]=find(Ave_Corr_coef < coef_thresh);
+
+if size(ind2,1)==size(Ave_Corr_coef,1)
+    %         error('no match was found')
+    coef_thresh = 0.4;
+    [ind2,b]=find(Ave_Corr_coef < coef_thresh);
+    if size(ind2,1)==size(Ave_Corr_coef,1)
+        coef_thresh = 0.3;
+        [ind2,b]=find(Ave_Corr_coef < coef_thresh);
+    end
+end
+%%registring Atlas Grayscale to the reference
+volumeA = original_VOL_ref.*double(original_ROI_ref~=0);
+l=1;
+for i=1:size(original_vol_atlas,2)
+    if ~sum(ind2==i)
+        volumeB = original_vol_atlas{i}.*double(original_roi_atlas{i}~=0);
+        [volumeB_Deformed,volumeB_affine,dy,dx,dz,dyI,dxI,dzI,Tran_Mat]=register_to_atlas(volumeA,volumeB);
+        indeces(l) = i;
+        RegisteredVOLs{l}=volumeB_Deformed;
+        MidRegisterVOLs{l}=volumeB_affine;
+        CoordinatesVOLsDY{l}=dy;
+        CoordinatesVOLsDX{l}=dx;
+        CoordinatesVOLsDZ{l}=dz;
+        CoordinatesVOLsDYI{l}=dyI;
+        CoordinatesVOLsDXI{l}=dxI;
+        CoordinatesVOLsDZI{l}=dzI;
+        TransMatVOLs{l}=Tran_Mat;
+        subjectIDs{l}=subjectIDs1{i};
+        clear volumeB volumeB_Deformed volumeB_affine dy dx dz dyI dxI dzI Tran_Mat
+        l=l+1;
+    end
+end
+
+fclose all
+%%registring Atlas ROIs to the reference
+l=1;
+for i=1:size(original_roi_atlas,2)
+    RegisteredROIs{l}=zeros(size(original_VOL_ref));
+    MidRegisterROIs{l}=zeros(size(original_VOL_ref));
+    volumeB_ROI = double(original_roi_atlas{i});
+    spacSource = [1.5 1.5 1.5];
+    geomtform=TransMatVOLs{l};
+    tt=geomtform.T;
+    ttinv=inv(tt);
+    ttinv(:,4)=[0;0;0;1];
+    geomtform.T=ttinv;
+    volumeB_affine_ROI=mexAffine3DSoli(volumeB_ROI,geomtform.T);
+    volumeB_Deformed_ROI = xctAppDeformation(double(volumeB_affine_ROI),double(CoordinatesVOLsDY{l}),double(CoordinatesVOLsDX{l}),double(CoordinatesVOLsDZ{l}),spacSource);
+    RegisteredROIs{l} = volumeB_Deformed_ROI;
+    MidRegisterROIs{l} = volumeB_affine_ROI;
+    clear volumeB_ROI volumeB_affine_ROI volumeB_Deformed_ROI
+    l = l+1;
+end
+
+
+
+RegisteredVOLsTest=original_VOL_test.*double(original_ROI_test~=0);
+RegisteredROIsTest = double(original_ROI_test);
+
+fclose all;
+
+
+%saving the registered atlas results for the next step (segmentation)
+for i=1:size(RegisteredVOLs,2)
+    original=RegisteredVOLs{i};
+    labeled=RegisteredROIs{i};
+    filename=sprintf('C:/registration/Atlas_mni/registration_results_%s',subjectIDs{i});
+    save(filename,'original','labeled');
+    clear original labeled
+end
+
+
+%%%%%SEGMENTATION STEPS
+%%step1: save the results in test_mni folder for segmentation step
+original = RegisteredVOLsTest;
+labeled = RegisteredROIsTest;
+% labeled(labeled==3)=2;
+original=original.*double(labeled~=0);
+File_Path = sprintf('C:/registration/test_mni/registration_results_%s.mat',ID);
+Target_Path = 'C:\registration\test_mni';
+save(File_Path,'original','labeled');
+Atlas_Path = 'C:\registration\Atlas_mni';
+
+%%step2: segmenting  label 1
+
+% Segmentation Parameters
+parm.shape.windowSize = 1;
+parm.shape.maxWindowSize = 5;
+parm.shape.tolerance = 2;
+parm.shape.tlrIncreStep = 5;
+parm.shape.Thr = 0.0;
+parm.spatial.KeepLabel= 1;
+brainObj = brain2(File_Path,1);
+atlasObj = atlas(Atlas_Path);
+segObj = segmentation(atlasObj , brainObj);
+segObj = segObj.run();
+load(File_Path)
+Registered_Segmented_ROI=segObj.segShapeIntensitySpatial;
+fclose all
+quad = double(Registered_Segmented_ROI==1);
+for i=1:size(Registered_Segmented_ROI,3)
+    quad(:,:,i) = imfill(quad(:,:,i),'holes');
+    se = strel('disk',1);
+    quad(:,:,i) = imerode(quad(:,:,i),se);
+    CC = bwconncomp(quad(:,:,i));
+    numPixels = cellfun(@numel,CC.PixelIdxList);
+    idx = find(numPixels<max(numPixels));
+    mid=quad(:,:,i);
+    if ~isempty(idx)
+        for l=1:size(idx,2)
+            mid(CC.PixelIdxList{idx(l)})=0;
+        end
+    end
+    quad(:,:,i) = mid;
+end
+quad = imdilate(quad,se);
+
+hamstrg = double(Registered_Segmented_ROI==2);
+%     hamstrg = imfill(hamstrg,'holes');
+for i=1:size(Registered_Segmented_ROI,3)
+    hamstrg(:,:,i) = imfill(hamstrg(:,:,i),'holes');
+    se = strel('disk',1);
+    hamstrg(:,:,i) = imerode(hamstrg(:,:,i),se);
+    CC = bwconncomp(hamstrg(:,:,i));
+    numPixels = cellfun(@numel,CC.PixelIdxList);
+    idx = find(numPixels<max(numPixels));
+    mid=hamstrg(:,:,i);
+    if ~isempty(idx)
+        for l=1:size(idx,2)
+            mid(CC.PixelIdxList{idx(l)})=0;
+        end
+    end
+    hamstrg(:,:,i) = mid;
+end
+hamstrg = imdilate(hamstrg,se);
+
+adduct = double(Registered_Segmented_ROI==3);
+%     adduct = imfill(adduct,'holes');
+for i=1:size(Registered_Segmented_ROI,3)
+    adduct(:,:,i) = imfill(adduct(:,:,i),'holes');
+    se = strel('disk',1);
+    adduct(:,:,i) = imerode(adduct(:,:,i),se);
+    CC = bwconncomp(adduct(:,:,i));
+    numPixels = cellfun(@numel,CC.PixelIdxList);
+    idx = find(numPixels<max(numPixels));
+    mid=adduct(:,:,i);
+    if ~isempty(idx)
+        for l=1:size(idx,2)
+            mid(CC.PixelIdxList{idx(l)})=0;
+        end
+    end
+    adduct(:,:,i) = mid;
+end
+adduct = imdilate(adduct,se);
+
+Registered_Segmented_ROI = zeros(size(Registered_Segmented_ROI));
+Registered_Segmented_ROI(quad~=0) = 1;
+Registered_Segmented_ROI(hamstrg~=0) = 2;
+Registered_Segmented_ROI(adduct~=0) = 3;
+
+Registered_Segmented_ROI = Registered_Segmented_ROI.*original_ROI_test;
+
+figure,showVol(Registered_Segmented_ROI.*original_VOL_test)
+figure,showVol(Registered_Segmented_ROI-original_ROI_test)
+
+save_name=sprintf('Segmentation_Results_%s.mat',ID);
+save(save_name,'Registered_Segmented_ROI','original_VOL_test')
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+for i=1:size(RegisteredVOLs,2)
+    filename=sprintf('C:/registration/Atlas_mni/registration_results_%s.mat',subjectIDs{i});
+    delete(filename)
+end
+filename=sprintf('C:/registration/test_mni/registration_results_%s.mat',ID);
+delete(filename)
+
+end
